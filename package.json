@@ -1,0 +1,12 @@
+{
+  "name": "roblox-auth-server",
+  "version": "1.0.0",
+  "description": "Roblox session and time tracking auth",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
