@@ -3,26 +3,14 @@ const app = express();
 app.use(express.json());
 
 // ==========================================
-// 🔑 YOUR KEY DATABASE (ADD KEYS HERE)
+// 🔑 YOUR KEY DATABASE (AUTOMATED EXPIRE)
 // ==========================================
 let database = {
     "PREMIUM-KEY-123": {
-        maxSessions: 2,       // Allows max 2 accounts
-        allowedMinutes: 60,   // Allows 1 hour total
-        sessions: {},         // DO NOT TOUCH (Tracks active user IDs)
+        maxSessions: 2,       
+        allowedMinutes: 60,   
+        sessions: {},         // Format: { "UserId": { minutesUsed: 0, lastSeen: timestamp } }
         lastResetDate: new Date().getUTCDate() 
-    },
-    "PLAYER-KEY-XYZ": {
-        maxSessions: 3,       // Allows max 3 accounts
-        allowedMinutes: 120,  // Allows 2 hours total
-        sessions: {},         // DO NOT TOUCH
-        lastResetDate: new Date().getUTCDate()
-    },
-    "ANOTHER-KEY-HERE": {
-        maxSessions: 4,       // Allows max 4 accounts
-        allowedMinutes: 180,  // Allows 3 hours total
-        sessions: {},         // DO NOT TOUCH
-        lastResetDate: new Date().getUTCDate()
     }
 };
 // ==========================================
@@ -31,26 +19,36 @@ app.post('/api/verify', (req, res) => {
     const { key, userId } = req.body;
     const keyData = database[key];
 
-    // Check if key exists
     if (!keyData) {
         return res.json({ allowed: false, message: "Invalid License Key!" });
     }
 
-    // Daily Reset check (Resets hours used if a new calendar day starts)
+    // 1. Daily Time Reset Check (UTC Midnight)
     const today = new Date().getUTCDate();
     if (keyData.lastResetDate !== today) {
         keyData.sessions = {}; 
         keyData.lastResetDate = today;
     }
 
+    const currentTime = Date.now();
+
+    // 2. AUTOMATIC SLOT CLEARING: Kick out anyone who hasn't pinged in 90 seconds
+    for (const activeId in keyData.sessions) {
+        const timeSinceLastPing = currentTime - keyData.sessions[activeId].lastSeen;
+        if (timeSinceLastPing > 90000) { // 90,000 ms = 90 seconds
+            delete keyData.sessions[activeId]; // Frees up the slot instantly!
+        }
+    }
+
     const activeUserIds = Object.keys(keyData.sessions);
 
-    // 1. If the user is ALREADY running the script, update their active time
+    // 3. If user is ALREADY running the script, update their status
     if (keyData.sessions[userId] !== undefined) {
-        keyData.sessions[userId] += 1; // Add 1 minute from heartbeat loop
+        keyData.sessions[userId].minutesUsed += 1; // Increment time
+        keyData.sessions[userId].lastSeen = currentTime; // Refresh their online timestamp
 
-        // Check if they ran out of time
-        if (keyData.sessions[userId] >= keyData.allowedMinutes) {
+        // Total time check
+        if (keyData.sessions[userId].minutesUsed >= keyData.allowedMinutes) {
             const hoursAllowed = Math.round(keyData.allowedMinutes / 60);
             return res.json({ allowed: false, message: `Your ${hoursAllowed}-hour session limit has expired!` });
         }
@@ -59,14 +57,18 @@ app.post('/api/verify', (req, res) => {
         return res.json({ allowed: true, sessionNumber: sessionNumber });
     }
 
-    // 2. If it's a NEW user trying to connect, check your session cap
+    // 4. If it's a NEW user/account trying to take a slot
     if (activeUserIds.length < keyData.maxSessions) {
-        keyData.sessions[userId] = 0; // Initialize at 0 minutes used
+        // Register them into an open slot and save the current time
+        keyData.sessions[userId] = {
+            minutesUsed: 0,
+            lastSeen: currentTime
+        };
         
         const sessionNumber = Object.keys(keyData.sessions).length;
         return res.json({ allowed: true, sessionNumber: sessionNumber });
     } else {
-        // Hit the session cap limit
+        // Sessions are completely occupied by active players
         return res.json({ allowed: false, message: `Max ${keyData.maxSessions} sessions reached for this key!` });
     }
 });
