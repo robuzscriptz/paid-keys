@@ -2,5 +2,9 @@
     "PREMIUM-KEY-123": {
         "maxSessions": 2,
         "allowedMinutes": 60
+    },
+    "shanniggernoob": {
+        "maxSessions": 1,
+        "allowedMinutes": 2
     }
 }
