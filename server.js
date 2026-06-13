@@ -1,21 +1,21 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const app = express();
+
 app.use(express.json());
 
-// ==========================================
-// 🔑 YOUR KEY DATABASE (AUTOMATED EXPIRE)
-// ==========================================
-let database = {
-    "PREMIUM-KEY-123": {
-        maxSessions: 2,       
-        allowedMinutes: 60,   
-        sessions: {},         // Format: { "UserId": { minutesUsed: 0, lastSeen: timestamp } }
-        lastResetDate: new Date().getUTCDate() 
-    }
-};
-// ==========================================
+const keysPath = path.join(__dirname, 'keys.json');
 
 app.post('/api/verify', (req, res) => {
+    // 1. Read keys fresh from the file every time
+    let database;
+    try {
+        database = JSON.parse(fs.readFileSync(keysPath, 'utf8'));
+    } catch (err) {
+        return res.json({ allowed: false, message: "Database Error!" });
+    }
+
     const { key, userId } = req.body;
     const keyData = database[key];
 
@@ -23,7 +23,11 @@ app.post('/api/verify', (req, res) => {
         return res.json({ allowed: false, message: "Invalid License Key!" });
     }
 
-    // 1. Daily Time Reset Check (UTC Midnight)
+    // Initialize session object if it doesn't exist
+    if (!keyData.sessions) keyData.sessions = {};
+    if (!keyData.lastResetDate) keyData.lastResetDate = new Date().getUTCDate();
+
+    // 2. Daily Time Reset Check
     const today = new Date().getUTCDate();
     if (keyData.lastResetDate !== today) {
         keyData.sessions = {}; 
@@ -32,44 +36,32 @@ app.post('/api/verify', (req, res) => {
 
     const currentTime = Date.now();
 
-    // 2. AUTOMATIC SLOT CLEARING: Kick out anyone who hasn't pinged in 90 seconds
+    // 3. Kick out inactive users (90 seconds)
     for (const activeId in keyData.sessions) {
-        const timeSinceLastPing = currentTime - keyData.sessions[activeId].lastSeen;
-        if (timeSinceLastPing > 90000) { // 90,000 ms = 90 seconds
-            delete keyData.sessions[activeId]; // Frees up the slot instantly!
+        if (currentTime - keyData.sessions[activeId].lastSeen > 90000) {
+            delete keyData.sessions[activeId];
         }
     }
 
     const activeUserIds = Object.keys(keyData.sessions);
 
-    // 3. If user is ALREADY running the script, update their status
-    if (keyData.sessions[userId] !== undefined) {
-        keyData.sessions[userId].minutesUsed += 1; // Increment time
-        keyData.sessions[userId].lastSeen = currentTime; // Refresh their online timestamp
+    // 4. Handle existing user session
+    if (keyData.sessions[userId]) {
+        keyData.sessions[userId].minutesUsed += 1;
+        keyData.sessions[userId].lastSeen = currentTime;
 
-        // Total time check
         if (keyData.sessions[userId].minutesUsed >= keyData.allowedMinutes) {
-            const hoursAllowed = Math.round(keyData.allowedMinutes / 60);
-            return res.json({ allowed: false, message: `Your ${hoursAllowed}-hour session limit has expired!` });
+            return res.json({ allowed: false, message: "Your daily limit has expired!" });
         }
-
-        const sessionNumber = activeUserIds.indexOf(userId) + 1;
-        return res.json({ allowed: true, sessionNumber: sessionNumber });
+        return res.json({ allowed: true });
     }
 
-    // 4. If it's a NEW user/account trying to take a slot
+    // 5. Handle new user slot
     if (activeUserIds.length < keyData.maxSessions) {
-        // Register them into an open slot and save the current time
-        keyData.sessions[userId] = {
-            minutesUsed: 0,
-            lastSeen: currentTime
-        };
-        
-        const sessionNumber = Object.keys(keyData.sessions).length;
-        return res.json({ allowed: true, sessionNumber: sessionNumber });
+        keyData.sessions[userId] = { minutesUsed: 0, lastSeen: currentTime };
+        return res.json({ allowed: true });
     } else {
-        // Sessions are completely occupied by active players
-        return res.json({ allowed: false, message: `Max ${keyData.maxSessions} sessions reached for this key!` });
+        return res.json({ allowed: false, message: "Max sessions reached!" });
     }
 });
 
