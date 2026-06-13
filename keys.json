@@ -1,0 +1,6 @@
+{
+    "PREMIUM-KEY-123": {
+        "maxSessions": 2,
+        "allowedMinutes": 60
+    }
+}
