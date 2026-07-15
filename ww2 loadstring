@@ -1,2 +1,1 @@
-loadstring(game:HttpGet('https://raw.githubusercontent.com/robuzscriptz/paid-keys/refs/heads/main/ww2%20script'))()
-
+loadstring(game:HttpGet("https://raw.githubusercontent.com/robuzscriptz/paid-keys/refs/heads/main/ww2%20script%20obfu"))()
